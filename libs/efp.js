@@ -1,0 +1,1601 @@
+var EFP = (function() {
+
+	var type = {
+		NUM: 'number',
+		STR: 'string',
+		PERCENT: 'percent',
+		SUB: 'subtraction',
+		ADD: 'addition',
+		DIV: 'division',
+		MUL: 'multiplication',
+		POW: 'power',
+		CONCAT: 'concatenation',
+		LT: 'lessThan',
+		LE: 'lessThanOrEqual',
+		EQ: 'equal',
+		GE: 'greaterThanOrEqual',
+		GT: 'greaterThan',
+		NE: 'notEqual',
+		ISECT: 'intersection',
+		LIST: 'list',
+		RANGE: 'range',
+		REF: 'reference',
+		FUNC: 'func',
+		BOOL: 'boolean',
+		PAR:'parenthesis',
+		ARR:'array'
+	};
+
+	function Lex(input) {
+		var lexer = this;
+		this.token = function(type, val) {
+			return {
+				type: type,
+				val: val
+			};
+		};
+
+		this.emit = function(type) {
+			var rawValue = this.input.substring(this.start, this.pos);
+			this.newStart();
+			this.tokens.push(this.token(type, rawValue));
+		};
+
+		this.lex = {
+			whitespace: function(){
+				if(lexer.isNextConsume(' ')){
+					lexer.newStart();
+				}
+			},
+			bool:function(){
+				if(lexer.isNextConsume('TRUE') ||
+					lexer.isNextConsume('true') ||
+					lexer.isNextConsume('FALSE') ||
+					lexer.isNextConsume('false')){
+					lexer.emit(type.BOOL);
+				}else if(lexer.isNext('"TRUE"') ||
+					lexer.isNext('"true"') ||
+					lexer.isNext('"FALSE"') ||
+					lexer.isNext('"false"')) {
+					lexer.next();
+					lexer.newStart();
+					this.bool();
+					lexer.next();
+					lexer.newStart();
+				}
+			},			
+			str: function() {
+				if(lexer.isNextConsume('"')) {
+					if(lexer.ignoreUntil('"')) {
+						lexer.emit(type.STR);
+					} else {
+						throw "Error occured parsing string!";
+					}
+				}
+			},
+			ne: function() {
+				if(lexer.isNextConsume('<>')) {
+					lexer.emit(type.NE);
+				}
+			},
+			ge: function() {
+				if(lexer.isNextConsume('>=')) {
+					lexer.emit(type.GE);
+				}
+			},
+			le: function() {
+				if(lexer.isNextConsume('<=')) {
+					lexer.emit(type.LE);
+				}
+			},
+			missarg: function() {
+				if(lexer.isNext(',,')) {
+					lexer.next();
+					lexer.emit(type.LIST);
+					lexer.next();
+					lexer.emit(type.LIST);
+				}
+			},
+			percent: function() {
+				if(lexer.isNextConsume('%')) {
+					lexer.emit(type.PERCENT);
+				}
+			},
+			mul: function() {
+				if(lexer.isNextConsume('*')) {
+					lexer.emit(type.MUL);
+				}
+			},
+			div: function() {
+				if(lexer.isNextConsume('/')) {
+					lexer.emit(type.DIV);
+				}
+			},
+			sub: function() {
+				if(lexer.isNextConsume('-')) {
+					lexer.emit(type.SUB);
+				}
+			},
+			add: function() {
+				if(lexer.isNextConsume('+')) {
+					lexer.emit(type.ADD);
+				}
+			},
+			pow: function() {
+				if(lexer.isNextConsume('^')) {
+					lexer.emit(type.POW);
+				}
+			},
+			concat: function() {
+				if(lexer.isNextConsume('&')) {
+					lexer.emit(type.CONCAT);
+				}
+			},
+			lt: function() {
+				if(lexer.isNextConsume('<')) {
+					lexer.emit(type.LT);
+				}
+			},
+			eq: function() {
+				if(lexer.isNextConsume('=')) {
+					lexer.emit(type.EQ);
+				}
+			},
+			gt: function() {
+				if(lexer.isNextConsume('>')) {
+					lexer.emit(type.GT);
+				}
+			},
+			isect: function() {
+				if(lexer.isNextConsume(' ')) {
+					lexer.emit(type.ISECT);
+				}
+			},
+			list: function() {
+				if(lexer.isNextConsume(',')) {
+					lexer.emit(type.LIST);
+				}
+			},
+			range: function() {
+				if(lexer.isNextConsume(':')) {
+					lexer.emit(type.RANGE);
+				}
+			},
+			par: function() {
+				if(lexer.isNextPar()) {
+					lexer.emit(type.PAR);
+				}
+			},
+			arr: function() {
+				if(lexer.isNextArr()) {
+					lexer.emit(type.ARR);
+				}
+			},
+			func: function() {
+				if(lexer.isNextFunc()) {
+					lexer.emit(type.FUNC);
+				}
+			},
+			num: function() {
+				if(!isNaN(lexer.peek())) {
+					lexer.accept("0123456789");
+					lexer.accept(".0123456789");
+					lexer.emit(type.NUM);
+				}
+			},
+			ref: function() {
+				if(lexer.accept("$ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890")) {
+					lexer.emit(type.REF);
+				}
+			}
+		};
+
+		this.next = function() {
+			var n = this.input[this.pos];
+			this.pos++;
+			return n;
+		};
+
+		this.backup = function() {
+			this.pos--;
+		};
+
+		this.peek = function() {
+			var n = this.next();
+			this.backup();
+			return n;
+		};
+
+		this.isNext = function(str) {
+			return this.input.indexOf(str, this.pos) === this.pos;
+		};
+
+		this.isNextConsume = function(str) {
+			if(this.isNext(str)) {
+				this.pos += str.length;
+				return true;
+			}
+			return false;
+		};
+
+		this.isNextFunc = function() {
+			var pos = this.pos;
+			if(this.accept("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.") && this.isNextPar()) {
+				return true;
+			}
+			this.pos = pos;
+			return false;
+		};
+
+		this.isNextPar = function(){
+			return this._isNextGroup('(',')');
+		};
+
+		this.isNextArr = function(){
+			return this._isNextGroup('{','}');
+		};
+
+		//helper function to stay dry
+		this._isNextGroup = function(startChar,endChar){
+			var b = 1;
+			if(lexer.isNextConsume(startChar)) {
+				while(!lexer.isAtEndOfLine()){
+					var n = lexer.next();
+					if(n === startChar){
+						b++;
+					}else if(n === endChar){
+						b--;
+					}
+
+                    //TODO: bug - if  n is undefined get infinite loop
+                    if (typeof n == 'undefined') {
+                        b = 0;
+                    }
+
+					if(b === 0) break;
+				}
+			}
+			return b === 0;
+		};
+
+		this.accept = function(str) {
+			var accepted = false;
+			var n = this.next();
+			while(str.indexOf(n) !== -1) {
+				accepted = true;
+				n = this.next();
+			}
+			this.backup();
+			return accepted;
+		};
+
+		this.ignore = function(i) {
+			this.pos += i;
+		};
+
+		this.ignoreUntil = function(str) {
+			var index = this.input.indexOf(str, this.pos);
+			if(index != -1) {
+				this.pos = index + 1;
+				return true;
+			}
+			return false;
+		};
+
+		this.newStart = function() {
+			this.start = this.pos;
+		};
+
+		this.isAtEndOfLine = function(){
+			return this.start >= this.input.length;
+		};
+
+		this.input = input;
+		this.start = 0;
+		this.pos = 0;
+		this.tokens = [];
+
+		//formula start
+		if(this.isNextConsume('=')){
+			if(this.input.length > 1){
+				newStart();
+			}else{
+				this.emit(type.STR);
+			}
+		}
+
+		//TODO optimize lexer to have each
+		//lexing function return a possible
+		//next state, instead of returning to 
+		//the "unknown".
+		outer:
+		while(!this.isAtEndOfLine()) {
+			for(var fn in lexer.lex) {
+				var pos = this.pos;
+				lexer.lex[fn]();
+				if(this.pos !== pos) continue outer;
+			}
+			throw "Unknown input " + lexer.next() + " in: "+ this.input;
+		}
+
+		return this.tokens;
+	}
+
+	function Parser(data) {
+		var references;
+		var scope = this;
+		var fn = EFP.fn;
+
+		var evaluator = {
+			evaluateOperator: function(eFn, s) {
+				var result;
+				var args;
+				if(eFn.length === 0){
+					args = s.splice(0,s.length);
+				}else{
+					args = s.splice(s.length-eFn.length,eFn.length);
+				}
+				for (var x = 0; x < eFn.length; x++){
+					if(args[x] === undefined){
+						result = EFP.Error.VALUE;
+						break;
+					}
+					if(fn.isRef(args[x])){
+						if(fn.isError(args[x].value)){
+							result = args[x].value;
+							break;
+						}
+						if(args[x].value === undefined || args[x].value === null){
+							args[x] = '';
+						}
+					}
+					if(fn.isError(args[x])){
+						result = args[x];
+						break;
+					}
+				}
+				if(!result){
+					result = eFn.apply(fn, args);
+				}
+				s.push(result);
+			},
+			evaluateFunction: function(fnName, s) {
+				//if(fnName in fn) {
+                fnName= fnName.toUpperCase();
+                if (fnName in Formula) {
+					var args = s.pop();
+                    //TODO: bug fixed - when call with EFP.String parameters not working some string function
+                    args = _.map(args, function(item){
+                        if (item instanceof EFP.String) {
+                            return item.toString();
+                        }
+                        else if (item instanceof EFP.Ref){
+                            var retVal = item.referenceValue();
+                            if (retVal instanceof EFP.String){
+                                return retVal.toString();
+                            }
+                            return retVal;
+                        }
+                        else if (item instanceof Array){
+                            item = _.map(item, function(array_item){
+                                if (array_item instanceof EFP.Ref){
+                                    var arVal = array_item.referenceValue();
+                                    if (arVal instanceof EFP.String){
+                                        return arVal.toString();
+                                    }
+                                    return arVal;
+                                }
+                            });
+                        }
+                        return item
+                    });
+					var result = //fn[fnName].apply(fn, args);
+                        Formula[fnName].apply(Formula, args);
+
+					s.push(result);
+				} else {
+					throw "Unknown function " + fnName;
+				}
+			},
+			addReference: function(id,pos,refs){
+				if(refs){
+					if(!refs[id]){
+						refs[id] = {};
+					}
+					refs[id][pos] = true;
+				}
+			},
+			number: function(item,s){
+				s.push(fn.atoi(item.val));
+			},
+			string: function(item,s){
+				var str = item.val.slice(1, item.val.length - 1);
+				s.push(new EFP.String(str));
+			},
+			percent: function(item,s){
+				s.push(fn.percent(s.pop()));
+			},
+			subtraction: function(item,s){
+				var argStack = s.splice(s.length-2,2);
+				if(argStack.length === 1){
+					argStack.unshift(0);
+				}
+				this.evaluateOperator(fn.sub, argStack);
+				s.push(argStack[0]);
+			},
+			addition: function(item,s){
+				var argStack = s.splice(s.length-2,2);
+				if(argStack.length === 1){
+					argStack.unshift(0);
+				}
+				this.evaluateOperator(fn.add, argStack);
+				s.push(argStack[0]);
+			},
+			division: function(item,s){
+				this.evaluateOperator(fn.div, s);
+			},
+			multiplication: function(item,s){
+				this.evaluateOperator(fn.mul, s);
+			},
+			power: function(item,s){
+				this.evaluateOperator(fn.power, s);
+			},
+			concatenation: function(item,s){
+				this.evaluateOperator(fn.concat, s);
+			},
+			lessThan:function(item,s){
+				this.evaluateOperator(fn.lt, s);
+			},
+			lessThanOrEqual: function(item,s){
+				this.evaluateOperator(fn.le, s);
+			},
+			equal: function(item,s){
+				this.evaluateOperator(fn.eq, s);
+			},
+			greaterThanOrEqual: function(item,s){
+				this.evaluateOperator(fn.ge, s);
+			},
+			greaterThan: function(item,s){
+				this.evaluateOperator(fn.gt, s);
+			},
+			notEqual: function(item,s){
+				this.evaluateOperator(fn.ne, s);
+			},
+			intersection: function(item,s){
+				this.evaluateOperator(fn.isect, s);
+			},
+			list: function(item,s){
+				var args = s.splice(s.length-fn.list.length,fn.list.length);
+				s.push(fn.list.apply(fn,args));
+			},
+			boolean: function(item,s){
+				if(item.val.toUpperCase() === 'TRUE'){
+					s.push(EFP.Bool.TRUE);
+				}else if(item.val.toUpperCase() === 'FALSE'){
+					s.push(EFP.Bool.FALSE);
+				}else{
+					throw "Unexpeced value "+item.val;
+				}
+			},
+			parenthesis: function(item,s,id){
+				s.push(scope.parse(item.val.slice(1, item.val.length - 1),id));
+			},
+			array: function(item,s,id){
+				var arr = scope.parse(item.val.slice(1, item.val.length - 1),id);
+				arr.isArray = true;
+				s.push(arr);
+			},
+			range:  function(item,s,id,refs,data){
+				var b = s.pop();
+				var a = s.pop();
+				var range = [];
+				range.isRange = true;
+				var mincol = Math.min(a.columnIndex, b.columnIndex);
+				var maxcol = Math.max(a.columnIndex, b.columnIndex);
+				var minrow,maxrow;
+
+				if(!(b.isColumnReference() || a.isColumnReference())){
+					minrow = Math.min(a.row, b.row);
+					maxrow = Math.max(a.row, b.row);
+				}else{
+					minrow = 1;
+					maxrow = scope.dataModel.getRowNum();
+				}
+
+				for(var c = mincol; c <= maxcol; c++) {
+					for(var r = minrow; r <= maxrow; r++) {
+						var pos = EFP.Ref.getColumnByIndex(c) + r;
+						this.addReference(id,pos,refs);
+						var val = data.getCell(pos);
+						var ref = new EFP.Ref(pos, val, {
+							context: scope,
+							fn: scope.parse,
+							id: id
+						});
+						range.push(ref);
+					}
+				}
+				s.push([range]);
+			},
+			reference: function(item,s,id,refs,data){
+				var pos = item.val;
+				if(pos.indexOf('$') !== -1){
+					pos = pos.replace(/\$/g,'');
+				}
+				this.addReference(id,pos,refs);
+
+				var val = data.getCell(pos);
+				var ref = new EFP.Ref(pos, val, {
+								context: scope,
+								fn: scope.parse,
+								id: id
+							});
+				s.push(ref);
+			},
+			func: function(item,s,id){
+				var argIndex = item.val.indexOf('(');
+				var functionName = item.val.substring(0,argIndex);
+				var args = item.val.substring(argIndex);
+				var argList;
+				if (args === '()'){
+					//zero arguments
+					argList = [];
+				}else{
+					//parse one or more arguments
+					argList = scope.parse(args,id);
+				}
+
+				if (!(argList instanceof Array)){
+					argList = [argList];
+				}
+				argList.isArgList = true;
+				s.push(argList);
+				this.evaluateFunction(functionName, s);
+			}
+		};
+
+		this.getReferences = function(id){
+			if(!this.hasReferences(id)){
+				return null;
+			}
+
+			var refs = [];
+			for (var key in references[id]){
+				refs.push(key);
+			}
+
+			return refs;
+		};
+
+		this.hasReferences = function(id){
+			if(references && references[id]){
+				return true;
+			}
+			return false;
+		};
+
+		this.parse = function(input,id) {
+
+			if(id && !references){
+				references = {};
+			}
+
+			if(typeof(input) !== 'string'){
+				if(fn.isError(input)) return input;
+				throw 'Expected string as input';
+			}
+
+			var data = this.dataModel;
+			var stack = Lex(input);
+			stack = convertStackFromInfixToPostfix(stack);
+
+			var valueStack = [];
+
+			while(stack.length > 0) {
+				var item = stack.shift();
+				if(evaluator[item.type] === undefined){
+					throw 'No handler for type: ' + JSON.stringify(item);
+				}
+				var args = [item,valueStack,id,references,data];
+				evaluator[item.type].apply(evaluator,args);
+			}
+
+			if(valueStack.length === 1) {
+				//if(!(valueStack[0] instanceof Array))
+				//console.log(input+' = '+valueStack[0])
+				return valueStack[0];
+			} else if(valueStack.length === 0) {
+				return null;
+			}else{
+				throw "Could not evaluate " + JSON.stringify(valueStack);
+			}
+		};
+
+		this.setData = function(data){
+			if(!(data && data.getCell && data.getRowNum)){
+				data = {
+					data:data,
+					getCell: function(pos){
+						return this.data && pos in this.data ? this.data[pos] : null;
+					},
+					getRowNum: function(){
+						// !! inefficient implementation !!
+						var maxrow = 0;
+						var rowPattern = /[0-9]+$/g;
+						for(var pos in this.data){
+							var match = pos.match(rowPattern);
+							if(match){
+								var row = match[0];
+								maxrow = Math.max(maxrow,row);
+							}
+						}
+						return maxrow;
+					}
+				};
+			}
+
+			if(!(data.getCell && typeof(data.getCell) === "function")){
+				throw "dataModel doesn't implement getCell";
+			}
+
+			if(!(data.getRowNum && typeof(data.getRowNum) === "function")){
+				throw "dataModel doesn't implement getRowNum";
+			}
+
+			this.dataModel = data;
+		};
+
+		this.setData(data);
+
+
+		function isOperand(token) {
+			switch(token.type) {
+			case type.BOOL:
+			case type.NUM:
+			case type.STR:
+			case type.REF:
+			case type.PERCENT:
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		function hasHigherOrEqualPrecedence(a, b) {
+			var ap = getPrecedence(a);
+			var bp = getPrecedence(b);
+			return ap >= bp;
+		}
+
+		function getPrecedence(token) {
+			switch(token.type) {
+			case type.LIST:
+				return -2;
+			case type.EQ:
+			case type.LT:
+			case type.LE:
+			case type.GE:
+			case type.GT:
+			case type.NE:
+				return -1;
+			case type.SUB:
+			case type.ADD:
+				return 0;
+			case type.DIV:
+			case type.MUL:
+				return 1;
+			case type.POW:
+				return 2;
+			case type.RANGE:
+			case type.ISECT:
+			case type.CONCAT:
+				return 3;
+			case type.FUNC:
+				return 4;
+			case type.PAR:
+			case type.ARR:
+				return 5;
+			default:
+				throw "Unknown presedence type! " + JSON.stringify(token);
+			}
+		}
+
+		function isUnaryOperator(stack,x){
+			var token = stack[x];
+			var isAddOrSub = token.type === type.SUB || token.type === type.ADD;
+			if(isAddOrSub){
+				if(x === 0){
+					return true;
+				}
+				var prevToken = stack[x-1];
+				switch(prevToken.type){
+					case type.NUM:
+					case type.REF:
+					case type.PAR:
+					case type.FUNC:
+						return false;
+					default:
+						return true;
+				}
+			}
+			return false;
+		}
+
+		function convertStackFromInfixToPostfix(stack) {
+
+			function logStack(stack) {
+				var out = "";
+				stack.forEach(function(t) {
+					out += t.val;
+				});
+				return out;
+			}
+
+			var newStack = [];
+			var operatorStack = [];
+			for (var x = 0; x < stack.length; x++){
+				var token = stack[x];
+				//console.log('new token: ' + token.val);
+				if(isOperand(token)) {
+					newStack.push(token);
+					//console.log('pushing it to stack as it is an operand: ' + logStack(newStack));
+				} else {
+					//convert/cheat/hack unary +/- operators into binary operators.
+					if(isUnaryOperator(stack,x)){
+						newStack.push({
+							type: type.NUM,
+							val: '0'
+						});
+					}
+					if(operatorStack.length === 0) {
+						operatorStack.push(token);
+						//console.log('pushing it to operatorStack as stack is zero lenght: ' + logStack(operatorStack));
+					} else {
+						while(true) {
+							if(operatorStack.length === 0) {
+								break;
+							}
+							operator = operatorStack.pop();
+							if(!hasHigherOrEqualPrecedence(operator, token)) {
+								operatorStack.push(operator);
+								break;
+							}
+							newStack.push(operator);
+							//console.log('popping operator "' + operator.val + '" (as it has higher precedence than token "' + token.val + '") and pushing it onto result: ' + logStack(newStack));
+						}
+						operatorStack.push(token);
+						//console.log('pushing operator "' + token.val + '" (as it has lower precedence): ' + logStack(operatorStack));
+					}
+				}
+			}
+
+			while(operatorStack.length > 0) {
+				//console.log('operator has more elements, popping and pushing');
+				newStack.push(operatorStack.pop());
+			}
+			//console.log(logStack(newStack))
+			return newStack;
+		}
+	}
+
+	return {
+		newInstance: function(data) {
+			return new Parser(data);
+		},
+		parse:function(input,id){
+			return new Parser().parse(input,id);
+		}
+	};
+
+})();
+
+//init static constants
+(function(){
+
+	function Error(err){
+		this.err = err;
+		this.toString = function(){
+			return this.err;
+		};
+	}
+
+	function Bool(b){
+		if(b === 'TRUE'){
+			b = 1;
+		}else if(b === 'FALSE'){
+			b = 0;
+		}else{
+			throw "Illegal argument, should be one of TRUE or FALSE";
+		}
+
+		this.toString = function(){
+			return b ? 'TRUE' : 'FALSE';
+		};
+
+		this.valueOf = function(){
+			return b;
+		};
+
+		this.toBool = function(){
+			return !!b;
+		};
+	}
+
+	EFP.Error = {
+		NULL: new Error('#NULL'),
+		DIVZERO:new Error('#DIV/0!'),
+		VALUE:new Error('#VALUE!'),
+		REF:new Error('#REF!'),
+		NAME:new Error('#NAME?'),
+		NUM:new Error('#NUM!'),
+		NA:new Error('#N/A')
+	};
+
+	EFP.Ref = function(pos, value, fnObj) {
+		this.valueOf = function() {
+			var value = this.referenceValue();
+
+			while(value && typeof(value) === "object"){
+				value = value.valueOf();
+			}
+
+			return value;
+		};
+
+		this.isNumeric = function(){
+			var v = this.referenceValue();
+			if(v === null) return false;
+			if(EFP.fn.isString(v)){
+				return v.isNumeric();
+			}else{
+				return !isNaN(v);
+			}
+		};
+
+		this.isNumber = function(){
+			if (typeof(this.referenceValue()) === "number"){
+				return true;
+			}
+
+			return false;
+		};
+
+		this.referenceValue = function(){
+			if(typeof(this.value) === "number") {
+				return this.value;
+			}
+			if(this.value == null){
+				return null;
+			}
+			return fnObj.fn.call(fnObj.context, this.value, fnObj.id);
+		};
+
+		this.setPosition = function(pos) {
+			var col = "";
+			var row = "";
+			for(var i = 0; i < pos.length; i++) {
+				var charCode = pos.charCodeAt(i);
+				var iCode = charCode - 65;
+				if(charCode >= 65 && charCode <= 90) {
+					//A-Z
+					col += pos[i];
+				} else if(charCode >= 48 && charCode <= 57) {
+					//0-9
+					row += pos[i];
+				}
+			}
+			this.column = col;
+			if(row.length > 0){
+				this.row = parseInt(row,10);
+			}
+			this.position = pos;
+			this.columnIndex = EFP.Ref.getColumnIndex(this.column);
+		};
+		this.toString = function(){
+			return ''+this.valueOf();
+		};
+
+		this.isColumnReference = function(){
+			return !!this.column && !this.row;
+		};
+
+		this.setPosition(pos);
+
+		//if value is not primitive, try to convert
+		if(value !== null && !EFP.fn.isError(value) && typeof(value) === "object"){
+			if(!value.valueOf) throw "Data object doesn't implement valueOf()";
+			value = value.valueOf();
+			if(value !== null && typeof(value) === "object") throw "Data object did not return formula as a primitive!";
+		}
+
+		this.value = value;
+	};
+
+	EFP.Ref.getColumnIndex = function(name){
+        var index = -1;
+        var cArray = name.split('').reverse();
+        for(var x = 0; x < cArray.length; x++){
+            index += (Math.pow(26,x)*(cArray[x].charCodeAt(0)-65+1));
+        }
+        return index;
+	}
+
+	EFP.Ref.getColumnByIndex = function(i) {
+		var start = 65; //A       
+		if(i < 26) {
+			return String.fromCharCode(i + start);
+		} else {
+			var f = EFP.Ref.getColumnByIndex;
+			var n = (i) / 26 - 1;
+			return f(n) + f(i % 26);
+		}
+	};
+
+
+
+	EFP.String = function(str){
+
+		this.toString = function(){
+			return str;
+		};
+
+		this.valueOf = function(){
+			return str;
+		};
+
+		this.isNumeric = function(){
+			if(str.replace(/(^\s+|\s+$)/g,'') === '') return false;
+			return !isNaN(str);
+		};
+
+		if(typeof(str) !== 'string') throw "Expected string as input!";
+
+	};
+
+	EFP.Bool = {
+		TRUE: new Bool('TRUE'),
+		FALSE: new Bool('FALSE')
+	};
+
+	EFP.fn = {
+		//INTERNAL CONVERSION FUNCTIONS
+		atoi: function(v) {
+			return parseFloat(v);
+		},
+		percent: function(i) {
+			return i / 100;
+		},
+		add: function(a,b) {
+			return a + b;
+		},
+		sub: function(a,b) {
+			return a - b;
+		},
+		mul: function(a, b) {
+			return a * b;
+		},
+		div: function(a, b) {
+			if (b === 0){
+				return EFP.Error.DIVZERO;
+			}
+			return a / b;
+		},
+		power: function(b, exp) {
+			return Math.pow(b, exp);
+		},
+		concat: function(a, b) {
+			return (''+a)+(''+b);
+		},
+		lt: function(a, b) {
+			if(a < b) return this.TRUE();
+			return this.FALSE();
+		},
+		le: function(a, b) {
+			if(a <= b) return this.TRUE();
+			return this.FALSE();
+		},
+		eq: function(a, b) {
+			if(a.valueOf() == b.valueOf()) return this.TRUE();
+			return this.FALSE();
+		},
+		ge: function(a, b) {
+			if(a >= b) return this.TRUE();
+			return this.FALSE();
+		},
+		gt: function(a, b) {
+			if(a > b) return this.TRUE();
+			return this.FALSE();
+		},
+		ne: function(a, b) {
+			if(a.valueOf() != b.valueOf()) return this.TRUE();
+			return this.FALSE();
+		},
+		isect: function(a, b) {
+			return a + " " + b;
+		},
+		list: function(a, b) {
+			if(a instanceof Array && b instanceof Array) {
+				a.push.apply(b);
+				return a;
+			} else if(a instanceof Array) {
+				a.push(b);
+				return a;
+			} else if(b instanceof Array) {
+				b.unshift(a);
+				return b;
+			}
+			return [a,b];
+		},
+		//INTRNAL HELPER FUNCTIONS
+		startsWith: function(str,s){
+			return str.indexOf(s) === 0;
+		},
+		isString: function(v){
+			return v instanceof EFP.String;
+		},
+		isRef: function(v){
+			return v instanceof EFP.Ref;
+		},
+		isBool: function(v){
+			return v instanceof Bool;
+		},
+		isError: function(v){
+			return v instanceof Error;
+		},
+		//Returns true if the value is a true number.
+		isNumber: function(v){
+			if(v === undefined || v === null) return false;
+			if(this.isString(v)) return false;
+			if(this.isBool(v)) return false;
+			if(this.isError(v)) return false;
+
+			if(this.isRef(v)){
+				return v.isNumber();
+			}
+
+			if (typeof(v) === "number") return true;
+			if (typeof(v) === "object" && typeof(v.valueOf()) === "number"){
+				return true;
+			}
+
+			return false;
+		},
+		//Returns true if the value seems to be a number
+		isNumeric:function(v){
+			if(v === undefined || v === null) return false;
+			if(this.isString(v)){
+				return v.isNumeric();
+			}
+			if(this.isBool(v)) return false;
+			if(this.isError(v)) return false;
+
+			if(this.isRef(v)){
+				return v.isNumeric();
+			}
+
+			if (typeof(v) === "object"){
+				return this.isNumeric(v.valueOf());
+			}
+
+			return false;
+		},
+		isArray: function(v){
+			return v instanceof Array && v.isArray === true;
+		},
+		isRange: function(v){
+			return v instanceof Array && v.isRange === true;
+		},
+		isArgList: function(v){
+			return v instanceof Array && v.isArgList === true;
+		},
+		isBlank: function(v){
+			if(v === null || v === ''){
+				return true;
+			}
+
+			if (typeof(v) === "object"){
+				return this.isBlank(v.valueOf());
+			}
+
+			return false;
+		},
+		contains: function(str,s){
+			return str.indexOf(s) !== -1;
+		},
+		getNumberOrString: function(str){
+			if(!isNaN(str)){
+				return parseFloat(str);
+			}
+			return str;
+		},
+		escapeRegexSpecials: function(str){
+			return str.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+		},
+		sum: function(){
+			var a = Array.prototype.slice.call(arguments);
+			var resultObj = {
+				sum: 0,
+				summerizedNumbers: 0,
+				add: function(n){
+					this.sum += n;
+					this.summerizedNumbers++;
+				}
+			};
+			for(var x = 0; x < a.length; x++) {
+				if(this.isError(a[x])){
+					return a[x];
+				}
+
+				if(this.isNumber(a[x]) || this.isBool(a[x])) {
+					resultObj.add(a[x]);
+				}else if (this.isRef(a[x])){
+					if(this.isNumeric(a[x])){
+						resultObj.add(parseFloat(a[x]));
+					}
+				}else if(a[x] instanceof Array){
+					var result = this.sum.apply(this,a[x]);
+					resultObj.sum += result.sum;
+					resultObj.summerizedNumbers += result.summerizedNumbers;
+				}else if (!isNaN(a[x])){
+					resultObj.add(parseFloat(a[x]));
+				}else{
+					return EFP.Error.VALUE;
+				}
+			}
+			return resultObj;
+		},
+		//EXCEL FUNCTIONS
+		"AND": function() {
+			for(var x = 0; x < arguments.length; x++){
+				var logicalTest = arguments[x];
+				if(this.isBool(logicalTest)){
+					if(!logicalTest.toBool()){
+						return this.FALSE();
+					}
+				}
+			}
+			return this.TRUE();
+		},
+		"AVERAGE": function() {
+			var a = Array.prototype.slice.call(arguments);
+			var filteredVals = [];
+			while(a.length > 0){
+				var val = a.shift();
+				if(this.isNumber(val) || this.isBool(val) || val instanceof Array){
+					filteredVals.push(val);
+				}else if(this.isRef(val)){
+					if(this.isNumeric(val)){
+						filteredVals.push(val);
+					}
+				}else if(val !== null && !isNaN(val)){
+					filteredVals.push(parseFloat(val));
+				}else{
+					return EFP.Error.VALUE;
+				}
+			}
+			return this.AVERAGEA.apply(this,filteredVals);
+		},
+		"AVERAGEA": function() {
+			var a = Array.prototype.slice.call(arguments);
+			if(this.isError(a)){
+				return a;
+			}
+
+			var result = this.sum.apply(this,a);
+			if(this.isError(result)){
+				return result;
+			}
+			return this.div(result.sum,result.summerizedNumbers);
+		},
+
+		"CHIDIST": function(x,n) {
+			if(!(this.isNumber(x) && this.isNumber(n))){
+				return EFP.Error.VALUE;
+			}
+
+			if(x < 0){
+				return EFP.Error.NUM;
+			}
+
+			if(n % 1 !== 0){
+				n = Math.floor(n);
+			}
+
+			if(n < 1 || n >= this.POWER(10,10)){
+				return EFP.Error.NUM;
+			}
+
+			if(x>1000 | n>1000) {
+				var q=this.NORM((this.POWER(x/n,1/3)+2/(9*n)-1)/this.SQRT(2/(9*n)))/2;
+				if (x>n) {
+					return q;
+				}else{
+					return 1-q;
+				}
+			}
+
+			var p=this.EXP(-0.5*x);
+			if((n%2)==1) {
+				p=p*this.SQRT(2*x/this.PI());
+			}
+
+			var k=n;
+			while(k>=2) {
+				p=p*x/k;
+				k=k-2;
+			}
+
+			var t=p;
+			var a=n;
+
+			while(t>1e-15*p) {
+				a=a+2;
+				t=t*x/a;
+				p=p+t;
+			}
+			return (1-p);
+		},
+
+		"COUNT": function() {
+			var a = Array.prototype.slice.call(arguments);
+			var count = 0;
+			for(var x = 0; x < a.length; x++) {
+				var v = a[x];
+				if(this.isRange(v)){
+					for(var i = 0; i < v.length; i++){
+						if(this.isNumber(v[i])){
+							count++;
+						}
+					}
+				}else if(this.isNumber(v) || this.isBool(v)){
+					count++;
+				}else if(this.isString(v) && this.isNumeric(v)){
+					count++;
+				}
+			}
+			return count;
+		},
+		"COUNTIF": function(range,criteria) {
+			var count = 0;
+			for(var x = 0; x < range.length; x++){
+				var cell = range[x];
+				if(this.isRef(criteria) ||
+					this.isBool(criteria) ||
+					this.isString(criteria)){
+					criteria = criteria.valueOf();
+				}
+
+				if(this.isRef(cell)){
+					cell = cell.valueOf();
+				}
+
+				if(typeof(criteria) === "string"){
+					var containsWildcards = false;
+					if(this.contains(criteria,'*')){
+						containsWildcards = true;
+						criteria = criteria.split('~*');
+						for(var i = 0; i < criteria.length; i++){
+							criteria[i] = criteria[i].replace(/\*/g,'.*');
+						}
+						criteria = criteria.join(this.escapeRegexSpecials('*'));
+					}
+
+					if(this.contains(criteria,'?')){
+						containsWildcards = true;
+						criteria = criteria.split('~?');
+						for(var j = 0; j < criteria.length; j++){
+							criteria[j] = criteria[j].replace(/\?/g,'.');
+						}
+						criteria = criteria.join(this.escapeRegexSpecials('?'));
+					}
+
+					if(containsWildcards){
+						criteria = new RegExp('^'+criteria+'$');
+					}
+				}
+
+				if(cell == criteria){
+					count++;
+				}else if(typeof(criteria) === "string"){
+					if(this.startsWith(criteria,'<>')){
+						if(cell != this.getNumberOrString(criteria.substring(2))) count++;
+					}else if(this.startsWith(criteria,'>=')){
+						if(cell >= this.getNumberOrString(criteria.substring(2))) count++;
+					}else if(this.startsWith(criteria,'<=')){
+						if(cell <= this.getNumberOrString(criteria.substring(2))) count++;
+					}else if(this.startsWith(criteria,'>')){
+						if(cell > this.getNumberOrString(criteria.substring(1))) count++;
+					}else if(this.startsWith(criteria,'<')){
+						if(cell < this.getNumberOrString(criteria.substring(1))) count++;
+					}
+
+				}else if(criteria instanceof RegExp){
+					if(criteria.test(cell)) count++;
+				}
+			}
+			return count;
+		},
+
+
+		"ERF": function(z,n) {
+			//TODO add n (upper limit)
+			return (2*this.GAUSS(this.SQRT(2)*z));
+		},
+
+
+		"GAUSS": function(z){
+			//Because NORM.S.DIST(0,True) always returns 0.5, GAUSS (z) will always be 0.5 less than NORM.S.DIST(z,True).
+			var g = ( (z<0) ? ( (z<-10) ? 0 : this.CHIDIST(z*z,1)/2 ) : ( (z>10) ? 1 : 1-this.CHIDIST(z*z,1)/2 ) );
+			g -= 0.5;
+			return g;
+		},
+		"IF": function(condition,tVal,fVal) {
+			if(this.isRef(condition)){
+				return this.IF(condition.referenceValue(),tVal,fVal)
+			}else if(this.isBool(condition)){
+				return condition.toBool() ? tVal : fVal;
+			}else if(this.isBlank(condition)){
+				return fVal;
+			}
+			throw "unknown condition ("+condition+") type: " + typeof(condition);
+		},
+
+		"LOGINV": function(probability,mean,stdev) {
+			if(!(this.isNumber(probability) && this.isNumber(mean) && this.isNumber(stdev))){
+				return EFP.Error.VALUE;
+			}
+
+			if(probability < 0 || probability > 1){
+				return EFP.Error.NUM;
+			}
+
+			if(stdev <= 0){
+				return EFP.Error.Num;
+			}
+			return this.EXP(mean + stdev * this.NORMSINV(probability));
+		},
+		"LOGNORM.DIST": function(x,mean,stdev,cumulative) {
+			if(cumulative.toBool()){
+				return this["NORM.S.DIST"]((this.LN(x)-mean)/stdev,cumulative);
+			}else{
+				return this.NORMDIST(x,mean,stdev,cumulative);
+			}
+		},
+		"NORM.DIST": function(x, mean, stdev, cumulative) {
+			return this.NORMDIST(x, mean, stdev, cumulative);
+		},
+		"NORM.INV": function(probability,mean,stdev) {
+			return this.NORMINV(probability,mean,stdev);
+		},
+		"NORM.S.DIST": function(z,cumulative) {
+			return this["NORM.DIST"](z,0,1,cumulative);
+		},
+		"NORM.S.INV": function() {
+			throw "'NORM.S.INV': not implemented";
+		},
+		"NORMDIST": function(x, mean, stdev, cumulative) {
+			if(!this.isBool(cumulative)){
+				return EFP.Error.VALUE;
+			}
+
+			if(cumulative.toBool()){
+				return (1/2*(1+this.ERF((x-mean)/(stdev*this.SQRT(2)))));
+			}else{
+				return ((1/(this.SQRT(2*this.PI())*stdev))*this.POWER(Math.E,(-(this.POWER(x-mean,2)/(2*this.POWER(stdev,2))))));
+			}
+		},
+		"NORMINV": function(probability,mean,stdev) {
+			if(!(this.isNumber(probability) && this.isNumber(mean) && this.isNumber(stdev))){
+				return EFP.Error.VALUE;
+			}
+
+			if(probability < 0 || probability > 1){
+				return EFP.Error.NUM;
+			}
+
+			if(stdev <= 0){
+				return EFP.Error.NUM;
+			}
+
+			return mean+stdev*this.NORMSINV(probability);
+		},
+		"NORMSDIST": function(z) {
+			return this.NORMDIST(z,0,1,this.TRUE());
+		},
+		"NORMSINV": function(p) {
+
+			if(!this.isNumber(p)){
+				return EFP.Error.VALUE;
+			}
+
+			if(p < 0 || p > 1){
+				return EFP.Error.NUM;
+			}
+
+			var a1 = -39.6968302866538, a2 = 220.946098424521, a3 = -275.928510446969;
+			var a4 = 138.357751867269, a5 = -30.6647980661472, a6 = 2.50662827745924;
+			var b1 = -54.4760987982241, b2 = 161.585836858041, b3 = -155.698979859887;
+			var b4 = 66.8013118877197, b5 = -13.2806815528857, c1 = -7.78489400243029E-03;
+			var c2 = -0.322396458041136, c3 = -2.40075827716184, c4 = -2.54973253934373;
+			var c5 = 4.37466414146497, c6 = 2.93816398269878, d1 = 7.78469570904146E-03;
+			var d2 = 0.32246712907004, d3 = 2.445134137143, d4 = 3.75440866190742;
+			var p_low = 0.02425, p_high = 1 - p_low;
+			var q, r;
+			var retVal;
+
+			if (p < p_low){
+				q = this.SQRT(-2 * Math.log(p));
+				retVal = (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+			} else if (p <= p_high) {
+				q = p - 0.5;
+				r = q * q;
+				retVal = (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
+			} else {
+				q = this.SQRT(-2 * Math.log(1 - p));
+				retVal = -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+			}
+			return retVal;
+		},
+		"PERCENTILE": function(array,P) {
+			if(!this.isNumber(P)) return EFP.Error.VALUE;
+			if(P > 1 || P < 0) return EFP.Error.NUM;
+
+			if(this.isRange(array)){
+				var a = array;
+				array = [];
+				for(var x = 0; x < a.length; x++){
+					var v = a[x].valueOf();
+					if(this.isNumber(v)){
+						array.push(v);
+					}
+				}
+			}
+			array.sort(function(a,b){
+				return a-b;
+			});
+
+			var N = array.length;
+			var n = [P*(N-1)+1,P*(N+1)];
+
+			var p = [];
+
+			for(var x = 0; x < 2; x++){
+				var d = n[x] % 1;
+				var k = n[x] - d;
+
+
+				if(k === 0 || k === N){
+					p[x] = array[x];
+					break;
+				}
+
+				p[x] = array[k-1]+d*(array[k]-array[k-1]);
+			}
+
+			//Excel impl
+			return p[0]; 
+
+			//NIST impl
+			//return (p[0]+p[1])/2;
+		},
+		"RANDBETWEEN": function(bottom,top) {
+			if(this.isRef(bottom)){
+				bottom = bottom.valueOf();
+			}
+
+			if(this.isRef(top)){
+				top = top.valueOf();
+			}
+
+			if(!this.isNumber(bottom) || !this.isNumber(top)){
+				return EFP.Error.VALUE;
+			}
+
+			if(bottom > top) return Error.NUM;
+
+			var rand = Math.floor(Math.random() * (top - bottom + 1)) + bottom;
+			return rand;
+		},
+		"ROUND": function(number,num_digits) {
+			//TODO is there a more elegant way?
+			number = ''+number.valueOf();
+			var parts = number.split('.');
+			var k = parseInt(parts[0],10);
+			var d = parts[1] ? parseFloat('0.'+parts[1]) : 0;
+			if(k < 0) {
+				d *= -1;
+			}		
+
+			if(num_digits >= 0){
+				d = parseFloat(d.toFixed(num_digits));
+			}else{
+				k /= Math.pow(10,Math.abs(num_digits));
+				k = k.toFixed(0);
+				k = parseInt(k,10);
+				k *= Math.pow(10,Math.abs(num_digits));
+			}
+			return k+d;
+		},
+		"SQRT": function(number) {
+			if(number < 0){
+				return EFP.Error.NUM;
+			}
+
+			return Math.sqrt(number);
+		},
+		"STDEV": function() {
+			var len = arguments.length;
+			var a = [];
+
+			//filter out unwanted values
+			for(var x = 0; x < len; x++){
+				if(this.isNumber(arguments[x]) ||
+					this.isRange(arguments[x]) ||
+					this.isArray(arguments[x])){
+					a.push(arguments[x]);
+				}
+			}
+
+			var avg = this.AVERAGE.apply(this,a);
+			var sum = 0;
+			len = a.length;
+
+			for(x = 0; x < len; x++){
+				if(this.isRange(a[x]) || this.isArray(a[x])){
+					sum += this.POWER(this.STDEV.apply(this,a[x]),2);
+				}else if(this.isNumber(a[x])){
+					sum += this.POWER((a[x]-avg),2)/(len-1);
+				}
+			}
+
+			return this.SQRT(sum);
+		},
+		"SUM": function() {
+			var result = this.sum.apply(this,arguments);
+			if (this.isError(result)){
+				return result;
+			}
+
+			return result.sum;
+		},
+		"TRUE": function() {
+			return EFP.Bool.TRUE;
+		},
+		"ISERR": function(v) {
+			if(v === EFP.Error.NA){
+				return v;
+			}
+			return this.ISERROR(v);
+		},
+		"ISERROR": function(v) {
+			if(this.isError(v)){
+				return this.TRUE();
+			}
+			return this.FALSE();
+		},
+		"ISLOGICAL": function() {
+			if(this.isBool(v)){
+				return this.TRUE();
+			}
+			return this.FALSE();
+		},
+		"ISNUMBER": function(value) {
+			if(this.isNumber(value)){
+				return this.TRUE();
+			}
+			return this.FALSE();
+		},
+		"ISREF": function(v) {
+			if(this.isRef(v)){
+				return this.TRUE();
+			}
+			return this.FALSE();
+		},
+		"ISTEXT	": function(v) {
+			if(this.isString(v)){
+				return this.TRUE();
+			}
+			return this.FALSE();
+		}
+	};
+})();
